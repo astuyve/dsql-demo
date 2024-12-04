@@ -1,0 +1,24 @@
+
+service: dsql-demo
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action: "dsql:DbConnectAdmin"
+      Resource: "*"
+
+custom:
+  datadog:
+    apiKey: ${env:DD_API_KEY}
+functions:
+  dsqlRun:
+    handler: handler.handler
+    url: true
+    environment:
+      DSQL_ENDPOINT: ${env:DSQL_ENDPOINT} 
+
+plugins:
+  - serverless-plugin-datadog
