@@ -2,7 +2,7 @@ import { DsqlSigner } from "@aws-sdk/dsql-signer";
 import tracer from "dd-trace";
 import pg from "pg";
 const { Client } = pg;
-
+let client = null;
 async function generateToken(endpoint, region, parent_span) {
   const signer = new DsqlSigner({
     hostname: endpoint,
@@ -21,21 +21,25 @@ async function generateToken(endpoint, region, parent_span) {
   }
 }
 // To connect with a custom database role, set user as the database role name
-async function dsql_sample(token, endpoint, parent_span) {
-  const client = new Client({
-    user: "admin",
-    database: "postgres",
-    host: endpoint,
-    password: token,
-    ssl: { 
-      rejectUnauthorized: false
-    },
-  });
+async function dsql_sample(endpoint, parent_span) {
 
-  const span = tracer.startSpan('dd-sql-connect', { endpoint, childOf: parent_span})
-  await client.connect();
-  span.finish();
-  console.log("[dsql_sample] connected to dsql!");
+  if (!client) {
+    const token = await generateToken(endpoint, "us-east-1", parent_span);
+    const localClient = new Client({
+        user: "admin",
+        database: "postgres",
+        host: endpoint,
+        password: token,
+        ssl: { 
+          rejectUnauthorized: false
+        },
+      });
+    const span = tracer.startSpan('dd-sql-connect', { endpoint, childOf: parent_span})
+    await localClient.connect();
+    span.finish();
+    client = localClient;
+    console.log("[dsql_sample] connected to dsql!");
+  }
 
   try {
     console.log("[dsql_sample] attempting transaction.");
@@ -49,15 +53,14 @@ async function dsql_sample(token, endpoint, parent_span) {
     console.error(err);
     return 500;
   } finally {
-    await client.end();
+    //await client.end();
   }
 }
 
 export const handler = async (event) => {
   const endpoint = process.env.DSQL_ENDPOINT;
   const span = tracer.startSpan('dd-sql-end-to-end', { endpoint, childOf: tracer.scope().active()})
-  const token = await generateToken(endpoint, "us-east-1", span);
-  const responseCode = await dsql_sample(token, endpoint, span);
+  const responseCode = await dsql_sample(endpoint, span);
   span.finish();
 
   console.log('ASTUYVE - returning response');
